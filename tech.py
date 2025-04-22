@@ -302,13 +302,24 @@ def confirm_action_node(state: GraphState) -> GraphState:
         for asset in proposed:
             old_val = current.get(asset, 0)
             new_val = proposed.get(asset, 0)
-            if abs(new_val - old_val) > 0.01:  # Only show meaningful changes
+            if abs(new_val - old_val) > 0.01:
                 print(f"- {asset}: ${old_val:,.2f} → ${new_val:,.2f} ({new_val-old_val:+,.2f})")
         
         print(f"\nTotal remains: ${sum(proposed.values()):,.2f}")
     
     resp = input("\nConfirm these changes? (y/n) > ").strip().lower()
-    return {**state, "confirm": "yes" if resp in {"y", "yes"} else "no"}
+    if resp in {"y", "yes"}:
+        state["confirm"] = "yes"
+        state["portfolio"] = state["optimization_result"].get("proposed", state["portfolio"])
+        # Save the current portfolio (updated state["portfolio"])
+        save_portfolio_version(state["portfolio"])
+        current_portfolio = state["portfolio"]
+        print(f"\n✅ Portfolio updated and saved. New total: ${sum(current_portfolio.values()):,.2f}")
+    else:
+        state["confirm"] = "n"
+        print("\n❌ Changes were not confirmed.")
+    
+    return state
 def show_portfolio_node(state: GraphState) -> GraphState:
     """Portfolio display with formatting"""
     return {**state, "show": state["portfolio"]}
