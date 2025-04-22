@@ -17,5 +17,16 @@ pip install -r requirements.txt
 ## Now to get the news
 
 ``` bash
-python3 news_ingestor.py --backfill-days 7 --count 20
+python3 get_news.py --backfill-days 7 --count 20
+```
+## To run the agent.
+
+First you will need to use Ollama 
+
+```bash
+ollama pull mistral && ollama serve
+```
+
+``` bash
+python3 tech.py --save-graph
 ```
