@@ -366,7 +366,7 @@ workflow.add_conditional_edges(
     lambda s: "error" not in s.get("optimization_result", {}),
     {
         True: "confirm_action",  
-        False: END  # Skip to end if error
+        False: END
     }
 )
 def save_portfolio_version(portfolio: Dict[str, float]):
@@ -382,29 +382,35 @@ workflow.add_edge("answer_question", END)
 workflow.add_edge("optimize_portfolio", "confirm_action")
 workflow.add_edge("confirm_action", END)
 
-def save_workflow_diagram(graph):
-    """Save workflow diagram as Mermaid code"""
-    output_path = "graph.mmd"
+def save_workflow_diagram_markdown(graph):
+    """Save workflow diagram as Mermaid markdown code."""
+    output_path = "graph.md"
     
     try:
-        mermaid_code = graph.get_graph().draw_mermaid_png( draw_method=MermaidDrawMethod.PYPPETEER)
-        with open(output_path, "w") as f:
-            f.write(mermaid_code)
+        # Get the Mermaid diagram code (not rendered image)
+        mermaid_code = graph.get_graph().draw_mermaid()
         
-        logger.info(f"Mermaid code saved to {output_path}")
+        # Wrap it in a markdown code block for Mermaid
+        markdown = f"```mermaid\n{mermaid_code}\n```"
+        
+        with open(output_path, "w") as f:
+            f.write(markdown)
+        
+        logger.info(f"Mermaid markdown saved to {output_path}")
         logger.info("You can render this at https://mermaid.live/")
         return output_path
-        
+
     except Exception as e:
         logger.error(f"Diagram generation failed: {e}")
         return None
+
 # === Main Execution Loop ===
 if __name__ == "__main__":
     # Compile and visualize workflow
     app = workflow.compile()
     
     if args.save_graph:
-        diagram_path = save_workflow_diagram(app)
+        diagram_path = save_workflow_diagram_markdown(app)
         logger.info(f"Workflow diagram saved to {diagram_path}")
 
     # Initialize portfolio
