@@ -74,8 +74,28 @@ class GraphState(TypedDict):
     optimization_result: Any
 
 # === Enhanced Validation System ===
+def normalize_portfolio(portfolio, target_total=10000):
+    current_total = sum(portfolio.values())
+    if current_total == 0:
+        return portfolio  # Avoid division by zero
+
+    if abs(current_total - target_total) < 1e-2:
+        return portfolio  # Already valid
+
+    factor = target_total / current_total
+    adjusted_portfolio = {k: round(v * factor, 2) for k, v in portfolio.items()}
+    
+    # Fix rounding drift
+    diff = round(target_total - sum(adjusted_portfolio.values()), 2)
+    if diff != 0:
+        first_key = next(iter(adjusted_portfolio))
+        adjusted_portfolio[first_key] += diff
+    
+    return adjusted_portfolio
 def validate_portfolio(portfolio: Dict[str, float]) -> Dict[str, Any]:
     """Comprehensive portfolio validation with risk analysis"""
+    portfolio = normalize_portfolio(portfolio)
+
     total = sum(portfolio.values())
     validation = {
         "is_valid": True,
@@ -132,11 +152,53 @@ def classify_intent_node(state: GraphState) -> GraphState:
         intent = "answer_question"
     
     return {**state, "intent": intent}
+def display_audit_result(audit_data: Dict[str, Any]):
+    from rich import print
+    from rich.table import Table
+    from rich.console import Console
+    from rich.panel import Panel
 
+    console = Console()
+    original = audit_data["original"]
+    proposed = audit_data["proposed"]
+    validation = audit_data["validation"]
+    narrative = audit_data.get("narrative", "")
+    
+    # Show allocation difference
+    table = Table(title="💼 Portfolio Allocation Changes", show_lines=True)
+    table.add_column("Asset", justify="left")
+    table.add_column("Original", justify="right")
+    table.add_column("Proposed", justify="right")
+    table.add_column("Δ Change", justify="right")
+
+    for asset in original:
+        old = original[asset]
+        new = proposed.get(asset, 0)
+        diff = new - old
+        delta_str = f"[green]+{diff:.2f}[/green]" if diff > 0 else f"[red]{diff:.2f}[/red]" if diff < 0 else "[white]0.00[/white]"
+        table.add_row(asset, f"${old:,.2f}", f"${new:,.2f}", delta_str)
+
+    console.print(table)
+
+    # Show validation results
+    valid_color = "green" if validation["is_valid"] else "red"
+    validation_panel = Panel.fit(
+        f"[bold]{'VALID' if validation['is_valid'] else 'INVALID'}[/bold]\n\n"
+        f"Total: ${validation['total']:,.2f}\n"
+        f"Low Risk Allocation: ${validation['risk_metrics'].get('low_risk_assets', 0):,.2f}\n"
+        f"High Risk Allocation: ${validation['risk_metrics'].get('high_risk_assets', 0):,.2f}\n\n"
+        + "\n".join(f"⚠️ {v}" for v in validation.get("violations", [])) if validation["violations"] else "No violations detected.",
+        title="🔍 Validation Summary",
+        border_style=valid_color,
+    )
+    console.print(validation_panel)
+
+    # Show narrative
+    console.print(Panel(narrative, title="📘 Optimization Narrative", border_style="blue"))
 @tool
 def optimize_portfolio_tool(portfolio: Dict[str, float]) -> Dict[str, Any]:
     """Modern Portfolio Theory-based optimization with news analysis."""
-    logging.info("OPTIMIZANDO ANDOOOOOOOOOO")
+    logging.info("---Finding Best New Portofolio---")
     try:
         # Step 1: Fetch more diverse and recent financial news
         docs = retriever.invoke("portfolio optimization financial news trends risk sectors inflation tech energy")
@@ -206,7 +268,9 @@ def optimize_portfolio_tool(portfolio: Dict[str, float]) -> Dict[str, Any]:
         os.makedirs("portfolio_audits", exist_ok=True)
         with open(f"portfolio_audits/{ts}.json", "w") as f:
             json.dump(audit_data, f, indent=2)
-        
+            logger.info(f"Saved portfolio snapshot to portfolio_audits/{ts}.json")
+        display_audit_result(audit_data)
+
         return audit_data
 
     except json.JSONDecodeError as e:
@@ -245,7 +309,6 @@ def confirm_action_node(state: GraphState) -> GraphState:
     
     resp = input("\nConfirm these changes? (y/n) > ").strip().lower()
     return {**state, "confirm": "yes" if resp in {"y", "yes"} else "no"}
-
 def show_portfolio_node(state: GraphState) -> GraphState:
     """Portfolio display with formatting"""
     return {**state, "show": state["portfolio"]}
