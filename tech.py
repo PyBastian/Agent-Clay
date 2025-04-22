@@ -291,26 +291,10 @@ def optimize_portfolio_tool(portfolio: Dict[str, float]) -> Dict[str, Any]:
 # === Workflow Nodes ===
 def confirm_action_node(state: GraphState) -> GraphState:
     """Enhanced confirmation with preview of changes"""
-    if "optimization_result" in state:
-        opt = state["optimization_result"]
-        current = state.get("portfolio", INITIAL_PORTFOLIO)
-        proposed = opt.get("proposed", current)
-        
-        print("\n🔄 Proposed Portfolio Changes:")
-        print(f"📝 Narrative:\n{opt.get('narrative', 'No explanation provided')}")
-        print("\n🔍 Changes:")
-        for asset in proposed:
-            old_val = current.get(asset, 0)
-            new_val = proposed.get(asset, 0)
-            if abs(new_val - old_val) > 0.01:
-                print(f"- {asset}: ${old_val:,.2f} → ${new_val:,.2f} ({new_val-old_val:+,.2f})")
-        
-        print(f"\nTotal remains: ${sum(proposed.values()):,.2f}")
-    
     resp = input("\nConfirm these changes? (y/n) > ").strip().lower()
     if resp in {"y", "yes"}:
         state["confirm"] = "yes"
-        state["portfolio"] = state["optimization_result"].get("proposed", state["portfolio"])
+        state["portfolio"] = state.get("proposed", state["portfolio"])
         # Save the current portfolio (updated state["portfolio"])
         save_portfolio_version(state["portfolio"])
         current_portfolio = state["portfolio"]
