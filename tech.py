@@ -136,6 +136,7 @@ def classify_intent_node(state: GraphState) -> GraphState:
 @tool
 def optimize_portfolio_tool(portfolio: Dict[str, float]) -> Dict[str, Any]:
     """Modern Portfolio Theory-based optimization with news analysis."""
+    logging.info("OPTIMIZANDO ANDOOOOOOOOOO")
     try:
         # Step 1: Fetch more diverse and recent financial news
         docs = retriever.invoke("portfolio optimization financial news trends risk sectors inflation tech energy")
@@ -205,7 +206,7 @@ def optimize_portfolio_tool(portfolio: Dict[str, float]) -> Dict[str, Any]:
         os.makedirs("portfolio_audits", exist_ok=True)
         with open(f"portfolio_audits/{ts}.json", "w") as f:
             json.dump(audit_data, f, indent=2)
-
+        
         return audit_data
 
     except json.JSONDecodeError as e:
@@ -306,7 +307,7 @@ workflow.add_conditional_edges(
     "optimize_portfolio",
     lambda s: "error" not in s.get("optimization_result", {}),
     {
-        True: "confirm_action",  # Show changes and ask for confirmation
+        True: "confirm_action",  
         False: END  # Skip to end if error
     }
 )
