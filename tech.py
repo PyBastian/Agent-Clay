@@ -138,9 +138,9 @@ def optimize_portfolio_tool(portfolio: Dict[str, float]) -> Dict[str, Any]:
     """Modern Portfolio Theory-based optimization with news analysis."""
     try:
         # Step 1: Fetch more diverse and recent financial news
-        docs = retriever.get_relevant_documents("portfolio optimization financial news trends risk sectors inflation tech energy")
-        unique_sources = list({d.metadata.get("source", ""): d for d in docs}.values())  # Dedup by source
-        context = "\n".join(f"- {d.page_content}" for d in unique_sources[:5])
+        docs = retriever.invoke("portfolio optimization financial news trends risk sectors inflation tech energy")
+        unique_sources = list({d.metadata.get("source", ""): d for d in docs}.values())
+        context = "\n".join(f"- {d.page_content}" for d in unique_sources[:15])
 
         # Step 2: Define clearer prompt structure
         portfolio_sample = json.dumps(portfolio, indent=2)
@@ -164,6 +164,7 @@ def optimize_portfolio_tool(portfolio: Dict[str, float]) -> Dict[str, Any]:
         - Total allocation must exactly equal $10,000
         - Rebalance to include sectors showing growth or resilience
         - Explain reasoning with technical insight (Markdown format)
+        - if you extract from some sector it should be added to other
 
         === Required Response Format (JSON) ===
         {{
@@ -224,8 +225,24 @@ def optimize_portfolio_tool(portfolio: Dict[str, float]) -> Dict[str, Any]:
 
 # === Workflow Nodes ===
 def confirm_action_node(state: GraphState) -> GraphState:
-    """User confirmation with input validation"""
-    resp = input("Confirm portfolio optimization? (y/n) > ").strip().lower()
+    """Enhanced confirmation with preview of changes"""
+    if "optimization_result" in state:
+        opt = state["optimization_result"]
+        current = state.get("portfolio", INITIAL_PORTFOLIO)
+        proposed = opt.get("proposed", current)
+        
+        print("\n🔄 Proposed Portfolio Changes:")
+        print(f"📝 Narrative:\n{opt.get('narrative', 'No explanation provided')}")
+        print("\n🔍 Changes:")
+        for asset in proposed:
+            old_val = current.get(asset, 0)
+            new_val = proposed.get(asset, 0)
+            if abs(new_val - old_val) > 0.01:  # Only show meaningful changes
+                print(f"- {asset}: ${old_val:,.2f} → ${new_val:,.2f} ({new_val-old_val:+,.2f})")
+        
+        print(f"\nTotal remains: ${sum(proposed.values()):,.2f}")
+    
+    resp = input("\nConfirm these changes? (y/n) > ").strip().lower()
     return {**state, "confirm": "yes" if resp in {"y", "yes"} else "no"}
 
 def show_portfolio_node(state: GraphState) -> GraphState:
@@ -258,7 +275,10 @@ workflow.add_node("classify_intent", classify_intent_node)
 workflow.add_node("confirm_action", confirm_action_node)
 workflow.add_node("show_portfolio", show_portfolio_node)
 workflow.add_node("answer_question", answer_question_node)
-workflow.add_node("optimize_portfolio", ToolNode([optimize_portfolio_tool]))
+workflow.add_node(
+    "optimize_portfolio",
+    lambda state: optimize_portfolio_tool.invoke(state)
+)
 
 # Configure workflow transitions
 workflow.set_entry_point("classify_intent")
@@ -273,12 +293,30 @@ workflow.add_conditional_edges(
         "optimize_portfolio": "optimize_portfolio"
     }
 )
-
+workflow.add_conditional_edges(
+    "confirm_action",
+    lambda s: s.get("confirm") == "yes",
+    {
+        True: "show_portfolio", 
+        False: END 
+    }
+)
+workflow.add_edge("confirm_action", END)
 workflow.add_conditional_edges(
     "optimize_portfolio",
-    lambda s: s["confirm"],
-    {"yes": "confirm_action", "no": END}
+    lambda s: "error" not in s.get("optimization_result", {}),
+    {
+        True: "confirm_action",  # Show changes and ask for confirmation
+        False: END  # Skip to end if error
+    }
 )
+def save_portfolio_version(portfolio: Dict[str, float]):
+    os.makedirs("portfolio_versions", exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"portfolio_versions/portfolio_{ts}.json"
+    with open(filename, "w") as f:
+        json.dump(portfolio, f, indent=2)
+    logger.info(f"Saved portfolio version to {filename}")
 
 workflow.add_edge("show_portfolio", END)
 workflow.add_edge("answer_question", END)
@@ -286,17 +324,21 @@ workflow.add_edge("optimize_portfolio", "confirm_action")
 workflow.add_edge("confirm_action", END)
 
 def save_workflow_diagram(graph):
-    from IPython.display import Image, display
-    output_path = "graph.png"
+    """Save workflow diagram as Mermaid code"""
+    output_path = "graph.mmd"
+    
     try:
-        png_bytes = graph.get_graph().draw_mermaid_png()
-        with open(output_path, "wb") as f:
-            f.write(png_bytes)
-
-        # Optionally display it
-        display(Image(filename=output_path))
+        mermaid_code = graph.get_graph().draw_mermaid_png( draw_method=MermaidDrawMethod.PYPPETEER)
+        with open(output_path, "w") as f:
+            f.write(mermaid_code)
+        
+        logger.info(f"Mermaid code saved to {output_path}")
+        logger.info("You can render this at https://mermaid.live/")
+        return output_path
+        
     except Exception as e:
-        print(f"Error rendering or saving graph: {e}")
+        logger.error(f"Diagram generation failed: {e}")
+        return None
 # === Main Execution Loop ===
 if __name__ == "__main__":
     # Compile and visualize workflow
@@ -326,6 +368,8 @@ if __name__ == "__main__":
             })
             
             # Process results
+            if result.get("confirm") == "yes":
+                current_portfolio = result.get("portfolio", current_portfolio)
             if result.get("show"):
                 print("\n📊 Current Portfolio:")
                 for asset, val in result["show"].items():
@@ -337,21 +381,16 @@ if __name__ == "__main__":
                 print(result["answer"])
                 
             if "optimization_result" in result:
-                print('ciomoooo')
                 opt = result["optimization_result"]
-                print("\n🔄 Optimization Result:")
-                print(f"Proposed Total: ${sum(opt['proposed'].values()):,.2f}")
-                
-                if opt['validation']['is_valid']:
-                    print("✅ Valid Portfolio")
-                    current_portfolio = opt["proposed"]
-                    print("\nRisk Metrics:")
+                if "error" in opt:
+                    print(f"\n❌ Optimization failed: {opt['error']}")
                 else:
-                    print("❌ Invalid Portfolio:")
-                    print("\n".join(opt['validation']['violations']))
-                
-                print("\n📝 Investment Rationale:")
-                print(opt.get("narrative", ""))
+                    print("\n🔍 Validation Results:")
+                    print("✅ Valid portfolio" if opt['validation']['is_valid'] else "❌ Invalid portfolio")
+                    if opt['validation']['violations']:
+                        print("Issues detected:")
+                        for issue in opt['validation']['violations']:
+                            print(f"- {issue}")
                 
         except KeyboardInterrupt:
             print("\n🚨 Operation cancelled")
